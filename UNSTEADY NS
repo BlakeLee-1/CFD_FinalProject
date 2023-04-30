@@ -1,0 +1,329 @@
+import fenics as fe
+import matplotlib.pyplot as plt
+import numpy as np
+
+#-------------------------------------------------------------------
+# Definition of some global FEniCS optimization parameters
+#
+# WE WILL DISCUSS THE MEANING AND IMPLICATIONS OF THESE OPTIMIZATION
+# OPERATIONS - AND THEIR ROLES IN GENERATING EFFICIENT COMPILED CODE
+#-------------------------------------------------------------------
+fe.set_log_level(fe.LogLevel.INFO)
+fe.parameters['form_compiler']['representation']    = 'uflacs'
+fe.parameters['form_compiler']['optimize']          = True
+fe.parameters['form_compiler']['cpp_optimize']      = True
+fe.parameters["form_compiler"]["cpp_optimize_flags"]= '-O2 -funroll-loops'
+
+#--------------------------------------------
+# definition of problem parameters and inputs
+#--------------------------------------------
+meshFile    = "venturi2D.xml"
+facetFile   = "venturi2D_facet_region.xml"
+outFileV    = "Vresults/vel-.pvd"
+outFileP    = "Vresults/pres-.pvd"
+outFileW    = "Vresults/vorticity-.pvd"
+outFileF    = "Vresults/forces.dat"
+outPlot     = "Vresults/forces.png"
+U0          = 3.0
+viscosity   = 0.1
+dt          = 0.001
+t_end       = 0.2
+
+#----------------------------------------------------------------------------
+# Identification of all correct boundary markers needed for the domain
+#
+# WE WILL DISCUSS THE NEED FOR SYSTEMATIC PRE-PROCESSING AND MODEL GENERATION
+# TO ENSURE THE BOUNDARY MARKERS ARE PROPERLY IDENTIFIED
+#----------------------------------------------------------------------------
+ID_INLET    = 13
+ID_CinTOP      = 15
+ID_CinBOT      = 16
+ID_CoutTOP     = 17
+ID_CoutBOT     = 18
+ID_OUTLET   = 14
+ID_CNoutTOP    = 20
+ID_CNoutBOT    = 19
+ID_CNinTOP     = 23
+ID_CNinBOT     = 24
+ID_CmidTOP     = 21
+ID_CmidBOT     = 22
+
+
+#-------------------------------------------------------
+# problem parameters defined in FEniCS compatible syntax
+#-------------------------------------------------------
+mu          = fe.Constant(viscosity)
+idt         = fe.Constant(1.0/dt)
+theta       = fe.Constant(0.5)
+
+#------------------------------------------------
+# create the mesh and import mesh into the solver
+#------------------------------------------------
+mesh = fe.Mesh(meshFile)
+
+#-----------------------------------------------------------------------
+# Define the mixed vector function space operating on this meshed domain
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#-----------------------------------------------------------------------
+V = fe.VectorElement("Lagrange", mesh.ufl_cell(), 1)
+P = fe.FiniteElement("Lagrange", mesh.ufl_cell(), 1)
+M = fe.MixedElement([V,P])
+W = fe.FunctionSpace(mesh,M)
+
+#-------------------------------------
+# Define unknown and test function(s)
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#-------------------------------------
+(u,p) = fe.TrialFunctions(W)
+(v,q) = fe.TestFunctions(W)
+#-------------------------------------------------------
+# Defining essential/Dirichlet boundary conditions
+# Step 1: Identify all boundary segments forming Gamma_d
+#-------------------------------------------------------
+domainBoundaries    = fe.MeshFunction("size_t", mesh, facetFile)
+ds                  = fe.ds(subdomain_data=domainBoundaries)
+
+#---------------------------------------------------------
+# Step 2: Define all boundary values (u_D) and assign them
+# to the appropriate Gamma_d
+#---------------------------------------------------------
+noSlip      = fe.Constant((0.0,0.0))
+pOut        = fe.Constant(0.0)
+inletFlow   = fe.Constant((U0, 0.0))
+
+inletBC     = fe.DirichletBC(W.sub(0), inletFlow, domainBoundaries, ID_INLET)
+outletBC    = fe.DirichletBC(W.sub(1), pOut, domainBoundaries, ID_OUTLET)
+CintopBC       = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CinTOP)
+CinbotBC      = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CinBOT)
+CouttopBC      = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CoutTOP)
+CoutbotBC     = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CoutBOT)
+CmidtopBC     = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CmidTOP)
+CmidbotBC   = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CmidBOT)
+CNintopBC   = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CNinTOP)
+CNinbotBC   = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CNinBOT)
+CNouttopBC   = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CNoutTOP)
+CNoutbotBC   = fe.DirichletBC(W.sub(0), noSlip, domainBoundaries, ID_CNoutBOT)
+
+#----------------------------
+# Collect boundary conditions
+#----------------------------
+bcs = [inletBC,outletBC,CintopBC,CinbotBC,CouttopBC,CoutbotBC,CmidtopBC,CmidbotBC,CNintopBC,CNinbotBC,CNouttopBC,CNoutbotBC]
+
+#------------------------------------------------------
+# Define body forces and some other relevant quantities
+# n is the normals to the surfaces/edges of the domain
+# I is the 2x2 identity matrix
+#------------------------------------------------------
+b       = fe.Constant((0.0,0.0))
+n       = fe.FacetNormal(mesh)
+I       = fe.Identity(2)
+zero    = fe.Constant(0.0)
+
+#------------------------------------------------------------------
+# Define variational forms without time derivative in current time
+# In theta-Galerkin formulation this is corresponding to the t_n+1
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#------------------------------------------------------------------
+w = fe.Function(W)
+
+(u,p) = (fe.as_vector((w[0],w[1])),w[2])
+T1_1 = fe.inner(v, fe.grad(u)*u)*fe.dx
+T2_1 = mu*fe.inner(fe.grad(v), fe.grad(u))*fe.dx
+T3_1 = p*fe.div(v)*fe.dx
+T4_1 = q*fe.div(u)*fe.dx
+T5_1 = fe.dot(v,b)*fe.dx
+
+L_1  = T1_1 + T2_1 - T3_1 - T4_1 - T5_1
+
+#------------------------------------------------------------------
+# Define variational forms without time derivative in previous time
+# In theta-Galerkin formulation this is corresponding to the t_n
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#------------------------------------------------------------------
+w0  =fe.Function(W)
+
+(u0,p0) = (fe.as_vector((w0[0],w0[1])), w0[2])
+T1_0 = fe.inner(v, fe.grad(u0)*u0)*fe.dx
+T2_0 = mu*fe.inner(fe.grad(v), fe.grad(u0))*fe.dx
+
+T3_0 = p*fe.div(v)*fe.dx 
+T4_0 = q*fe.div(u0)*fe.dx 
+T5_0 = fe.dot(v,b)*fe.dx
+
+L_0 = T1_0 + T2_0 - T3_0 - T4_0 - T5_0
+
+
+#------------------------------------------------
+# Combine variational forms with time derivative
+# As discussed for the theta-Galerkin formulation
+#
+#  dw/dt + F(t) = 0 is approximated as
+#  (w-w0)/dt + (1-theta)*F(t0) + theta*F(t) = 0
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#-----------------------------------------------
+F = idt*fe.inner((u-u0),v)*fe.dx + (1.0-theta)*L_0 + theta*L_1
+#------------------------------------------
+# Definition of the stabilization parameter
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#------------------------------------------
+
+h   = fe.CellDiameter(mesh)
+velocity = u0
+vnorm = fe.sqrt(fe.dot(velocity, velocity))
+tau = ( (2.0*theta*idt)**2 + (2.0*vnorm/h)**2 + (4.0*mu/h**2)**2 )**(-0.5)
+
+#------------------------------------------------------------
+# Residual of the strong form of Navier-Stokes and continuity
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#------------------------------------------------------------
+
+r = idt*(u - u0) + theta*(fe.grad(u)*u - mu*fe.div(fe.grad(u)) + fe.grad(p) - b) + (1.0-theta)*(fe.grad(u0)*u0 - mu*fe.div(fe.grad(u0)) + fe.grad(p) - b)
+#-------------------------------------
+# Add SUPG stabilization
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#-------------------------------------
+
+
+
+F += tau*fe.inner(fe.grad(v)*u, r)*fe.dx(metadata={'quadrature_degree':4})
+#--------------------------------------
+# Add PSPG stabilization
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#-------------------------------------
+
+F += tau*fe.inner(fe.grad(q), r)*fe.dx(metadata={'quadrature_degree':4})
+
+#----------------------------------------------------
+# Define Jacobian or derivative for the Newton method
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#----------------------------------------------------
+dW = fe.TrialFunction(W)
+J = fe.derivative(F, w, dW)
+
+#--------------------------------------
+# Create variational problem and solver
+#--------------------------------------
+problem = fe.NonlinearVariationalProblem(F, w, bcs, J=J)
+solver  = fe.NonlinearVariationalSolver(problem)
+solver.parameters['newton_solver']['maximum_iterations'] = 100
+
+#----------------------------------
+# Create files for storing solution
+#----------------------------------
+ufile = fe.File(outFileV)
+pfile = fe.File(outFileP)
+omegaFile = fe.File(outFileW)
+
+#----------------------------------------------------
+# Time-stepping loop
+#
+# DISCUSS THE CONCEPT OF AN INNNER AND AN OUTER LOOP
+# INNER LOOP - NEWTON ITERATION LOOP AT EACH STEP
+# OUTER LOOP - LOOP THROUGH THE TIME STEPS
+#---------------------------------------------------
+t   = dt
+tn  = 0
+
+Fx_listValues = []
+Fy_listValues = []
+T_listValues = []
+
+while t < t_end:
+
+    print("t =", t)
+
+    #--------
+    # Compute
+    #--------
+    print("Solving ....")
+
+    #Newton Method
+    solver.solve()
+
+    #-------------------
+    # Extract solutions:
+    #-------------------
+    (u, p) = w.split()
+
+    #--------------------------------------------------------------
+    # Save to file but only once every 4 steps
+    # strategies like these reduce the amount of data files written
+    # on to the computer memory
+    #--------------------------------------------------------------
+    if tn%4 == 0:
+
+        u.rename("vel", "vel")
+        p.rename("pres", "pres")
+        ufile << u
+        pfile << p
+        print("Written Velocity And Pressure Data")
+
+        #-------------------------------------------------------------------
+        # Basic post-processing action: TASK 1:
+        # We will compute the vorticity directly from within the solver code
+        #
+        # TO BE COMPLETED DURING IN CLASS DEMO
+        #-------------------------------------------------------------------
+
+        omega = fe.curl(u)
+        omegaField = fe. project(omega, fe.FunctionSpace(mesh, "Lagrange", 1))
+        omegaField.rename("vort", "vorticity")
+        omegaFile << omegaField
+
+    #----------------------------------------------------------------------
+    # Basic post-processing action: TASK 2:
+    # Compute the force on the step wall using integration of the traction
+    #
+    # TO BE COMPLETED DURING IN CLASS DEMO
+    #----------------------------------------------------------------------
+    epsilon = 0.5*(fe.grad(u) + fe.grad(u).T)
+    sigma = -p*I + 2.0*mu*epsilon
+    traction = fe.dot(sigma, n)
+    forceX = traction[0]*ds(ID_CmidTOP) + traction[0]*ds(ID_STEPTOP) + traction[0]*ds(ID_STEPL)
+    forceY = traction[1]*ds(ID_STEPR) + traction[1]*ds(ID_STEPTOP) + traction[1]*ds(ID_STEPL)
+
+    Fx = fe.assemble(forceX)
+    Fy = fe.assemble(forceY)
+    print("Fx:", Fx, "Fy:", Fy)
+    Fx_listValues.append(Fx)
+    Fy_listValues.append(Fy)
+    T_listValues.append(t)
+
+    #-----------------------
+    # Move to next time step
+    #-----------------------
+    w0.assign(w)
+    t   += dt
+    tn  += 1   
+
+#---------------------------------------------------
+# Plot and save the force data into a png file with
+# appropriately formatted plotting commands
+#
+# TO BE COMPLETED DURING IN CLASS DEMO
+#---------------------------------------------------
+
+forceData = np.array((T_listValues, Fx_listValues, Fy_listValues), dtype=np.float32)
+np.savetxt(outFileF, forceData)
+
+fig, ax = plt.subplots(1,2)
+ax[0].plot(T_listValues, Fx_listValues, 'g')
+ax[1].plot(T_listValues, Fx_listValues, 'm')
+ax[0].set_xlabel('time', fontweight='bold')
+ax[1].set_xlabel('time', fontweight='bold')
+ax[0].set_ylabel('forces(x)', fontweight='bold')
+ax[1].set_ylabel('Forces(y)', fontweight='bold')
+ax[0].set_title('Forces in x direction')
+ax[1].set_title('Forces in y direction')
+plt.savefig(outPlot, bbox_inches='tight', dpi=120)
+plt.close()
