@@ -1,0 +1,73 @@
+// Gmsh project created on Sat Apr 29 14:12:16 2023
+SetFactory("OpenCASCADE");
+
+h= 0.05;
+
+Point(1) = {0, 1, 0, h};
+Point(5) = {4, 1.0, 0, h};
+Point(7) = {6, .5, 0, h};
+Point(9) = {8, .5, 0, h};
+Point(11) = {10, 1, 0, h};
+Point(15) = {14, 1, 0, h};
+
+
+Point(16) = {0, -1, 0, h};
+Point(20) = {4, -1.0, 0, h};
+Point(22) = {6, -.5, 0, h};
+Point(24) = {8, -.5, 0, h};
+Point(26) = {10, -1, 0, h};
+Point(30) = {14, -1, 0, h};
+
+//INLET
+Line(1) = {1, 16};
+//OUTLET
+Line(2) = {15, 30};
+
+Line(3) = {1, 5};
+Line(4) = {5, 7};
+Line(5) = {7, 9};
+Line(6) = {9, 11};
+Line(7) = {11, 15};
+Line(8) = {16, 20};
+Line(9) = {20, 22};
+Line(10) = {22, 24};
+Line(11) = {24, 26};
+Line(12) = {26, 30};
+
+//+INLET
+Physical Curve(13) = {1};
+//+OUTLET
+Physical Curve(14) = {2};
+
+//+cylinderINtop
+Physical Curve(15) = {3};
+//+cylinderINbtm
+Physical Curve(16) = {8};
+
+//+cylinderOUTtop
+Physical Curve(17) = {7};
+//+cylinderOUTbtm
+Physical Curve(18) = {12};
+
+//+coneOUTbtm
+Physical Curve(19) = {11};
+//+coneOUTtop
+Physical Curve(20) = {6};
+
+//+cylinderMIDtop
+Physical Curve(21) = {5};
+//+cylinderMIDbtm
+Physical Curve(22) = {10};
+
+//+coneINtop
+Physical Curve(23) = {4};
+//+coneINbtm
+Physical Curve(24) = {9};
+
+
+//+
+Curve Loop(1) = {3, 4, 5, 6, 7, 2, -12, -11, -10, -9, -8, -1};
+//+
+Plane Surface(1) = {1};
+//+
+Physical Surface(25) = {1};
